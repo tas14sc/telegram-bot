@@ -1,6 +1,8 @@
 import os
 import anthropic
 from dotenv import load_dotenv
+from telegram import Update
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
 load_dotenv()
 
