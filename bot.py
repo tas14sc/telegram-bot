@@ -12,7 +12,7 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-MAX_HISTORY = 50
+MAX_HISTORY = 200
 
 # --- Database setup ---
 def init_db():
@@ -109,6 +109,8 @@ Recent conversation:
 {history_text}
 
 Now respond to this message from {sender}: {user_text}
+
+Important: Do not use any markdown formatting in your response. Plain text only, no bold, no bullet points, no headers.
 
 If you learn any new facts about a user from this message (name, preferences, job, etc.), include them at the very end of your response in this exact format:
 FACTS: {username} | fact1, fact2, fact3"""
