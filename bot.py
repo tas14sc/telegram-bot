@@ -12,6 +12,7 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+GROK_API_KEY = os.getenv("GROK_API_KEY")
 
 claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -76,6 +77,9 @@ def save_user_facts(chat_id, username, facts):
 def extract_urls(text):
     return re.findall(r'https?://[^\s]+', text)
 
+def is_twitter_url(url):
+    return "twitter.com" in url or "x.com" in url
+
 def fetch_url_content(url):
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
@@ -89,6 +93,29 @@ def fetch_url_content(url):
         return text[:5000], None
     except Exception:
         return None, None
+
+def ask_grok(prompt):
+    try:
+        response = requests.post(
+            "https://api.x.ai/v1/chat/completions",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {GROK_API_KEY}"
+            },
+            json={
+                "model": "grok-3-latest",
+                "messages": [
+                    {"role": "system", "content": "You are a helpful assistant with access to Twitter/X. When given a tweet URL, read and summarize the tweet and any relevant replies. Do not use markdown formatting, plain text only."},
+                    {"role": "user", "content": prompt}
+                ],
+                "stream": False
+            },
+            timeout=15
+        )
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        return f"Error fetching tweet: {str(e)}"
 
 async def fetch_file_bytes(file, context):
     try:
@@ -131,7 +158,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- Handle images ---
     if message.photo:
         await message.reply_text("Looking at that image, one moment...")
-        photo = message.photo[-1]  # highest resolution
+        photo = message.photo[-1]
         img_bytes = await fetch_file_bytes(photo, context)
         if img_bytes:
             img_b64 = base64.b64encode(img_bytes).decode("utf-8")
@@ -198,15 +225,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await message.reply_text(f"Error reading PDF: {str(e)}")
         return
 
-    # --- Handle URLs in message ---
+    # --- Handle URLs ---
     urls = extract_urls(user_text)
     if urls:
-        await message.reply_text("Fetching that link, one moment...")
-        url_content, _ = fetch_url_content(urls[0])
-        if url_content:
-            extra_content = f"\n\nContent from the link ({urls[0]}):\n{url_content}"
+        url = urls[0]
+        if is_twitter_url(url):
+            await message.reply_text("Fetching that tweet, one moment...")
+            user_prompt = user_text.replace(url, "").strip()
+            grok_prompt = f"Here is a tweet URL: {url}\n\n{user_prompt if user_prompt else 'Please summarize this tweet and any notable replies.'}"
+            reply = ask_grok(grok_prompt)
+            await message.reply_text(reply)
         else:
-            extra_content = f"\n\n(Could not fetch content from {urls[0]})"
+            await message.reply_text("Fetching that link, one moment...")
+            url_content, _ = fetch_url_content(url)
+            if url_content:
+                extra_content = f"\n\nContent from the link ({url}):\n{url_content}"
+            else:
+                extra_content = f"\n\n(Could not fetch content from {url})"
 
     prompt = f"""You are a helpful assistant in a group chat. You have a persistent memory of conversations and facts about users.
 
