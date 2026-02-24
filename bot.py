@@ -105,7 +105,7 @@ def ask_grok(prompt):
             json={
                 "model": "grok-3-latest",
                 "messages": [
-                    {"role": "system", "content": "You are a helpful assistant with access to Twitter/X. When given a tweet URL, read and summarize the tweet and any relevant replies. Do not use markdown formatting, plain text only."},
+                    {"role": "system", "content": "You are a helpful assistant with access to Twitter/X and real-time search. When given a tweet URL, try to fetch it directly. If you cannot access it, search X for the topic, account, or keywords related to the URL and provide the most relevant recent discussion you find. Always be transparent about whether you fetched the actual tweet or found related content. Do not use markdown formatting, plain text only."},
                     {"role": "user", "content": prompt}
                 ],
                 "stream": False
