@@ -225,11 +225,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
-
-Then add `requests` to your `requirements.txt` so it looks like this:
-```
-python-telegram-bot
-anthropic
-python-dotenv
-requests
