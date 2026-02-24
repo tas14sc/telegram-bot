@@ -90,7 +90,7 @@ def fetch_url_content(url):
     except Exception:
         return None, None
 
-async def fetch_pdf_from_telegram(file, context):
+async def fetch_file_bytes(file, context):
     try:
         tg_file = await context.bot.get_file(file.file_id)
         response = requests.get(tg_file.file_path, timeout=10)
@@ -128,11 +128,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_facts = get_user_facts(chat_id)
     user_text = text.replace(f"@{bot_username}", "").strip()
 
+    # --- Handle images ---
+    if message.photo:
+        await message.reply_text("Looking at that image, one moment...")
+        photo = message.photo[-1]  # highest resolution
+        img_bytes = await fetch_file_bytes(photo, context)
+        if img_bytes:
+            img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+            try:
+                response = claude.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=1024,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/jpeg",
+                                    "data": img_b64
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": f"{user_text if user_text else 'Please describe what you see in this image.'}\n\nImportant: Do not use any markdown formatting. Plain text only."
+                            }
+                        ]
+                    }]
+                )
+                reply = response.content[0].text
+                await message.reply_text(reply)
+            except Exception as e:
+                await message.reply_text(f"Error reading image: {str(e)}")
+        return
+
     # --- Handle PDF documents ---
     extra_content = None
     if message.document and message.document.mime_type == "application/pdf":
         await message.reply_text("Reading the PDF, one moment...")
-        pdf_bytes = await fetch_pdf_from_telegram(message.document, context)
+        pdf_bytes = await fetch_file_bytes(message.document, context)
         if pdf_bytes:
             pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
             try:
