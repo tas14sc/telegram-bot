@@ -233,8 +233,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text("Fetching that tweet, one moment...")
             user_prompt = user_text.replace(url, "").strip()
             grok_prompt = f"Here is a tweet URL: {url}\n\n{user_prompt if user_prompt else 'Please summarize this tweet and any notable replies.'}"
-            reply = ask_grok(grok_prompt)
-            await message.reply_text(reply)
+           reply = ask_grok(grok_prompt)
+        await message.reply_text(reply)
+        return
         else:
             await message.reply_text("Fetching that link, one moment...")
             url_content, _ = fetch_url_content(url)
