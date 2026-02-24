@@ -1,5 +1,7 @@
 import os
 import sqlite3
+import re
+import requests
 import anthropic
 from dotenv import load_dotenv
 from telegram import Update
@@ -12,7 +14,7 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-MAX_HISTORY = 200
+MAX_HISTORY = 50
 
 # --- Database setup ---
 def init_db():
@@ -69,20 +71,51 @@ def save_user_facts(chat_id, username, facts):
     conn.commit()
     conn.close()
 
+# --- URL and PDF fetching ---
+def extract_urls(text):
+    return re.findall(r'https?://[^\s]+', text)
+
+def fetch_url_content(url):
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+
+        content_type = response.headers.get("Content-Type", "")
+
+        if "pdf" in content_type:
+            return None, url  # handle as PDF download link
+
+        # Strip HTML tags roughly
+        text = re.sub(r'<[^>]+>', ' ', response.text)
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text[:5000], None  # limit to 5000 chars
+    except Exception as e:
+        return None, None
+
+async def fetch_pdf_from_telegram(file, context):
+    try:
+        tg_file = await context.bot.get_file(file.file_id)
+        response = requests.get(tg_file.file_path, timeout=10)
+        return response.content  # raw PDF bytes
+    except Exception:
+        return None
+
 # --- Message handler ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
-    if not message or not message.text:
+    if not message:
         return
 
     chat_id = message.chat_id
     bot_username = context.bot.username
-    text = message.text
+    text = message.text or message.caption or ""
     sender = message.from_user.first_name or "User"
     username = message.from_user.username or sender
 
     # Always save the message
-    save_message(chat_id, sender, text)
+    if text:
+        save_message(chat_id, sender, text)
 
     # Only respond if mentioned or replied to
     is_mentioned = f"@{bot_username}" in text
@@ -100,6 +133,53 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_facts = get_user_facts(chat_id)
     user_text = text.replace(f"@{bot_username}", "").strip()
 
+    # --- Handle PDF documents ---
+    extra_content = None
+    if message.document and message.document.mime_type == "application/pdf":
+        await message.reply_text("Reading the PDF, one moment...")
+        pdf_bytes = await fetch_pdf_from_telegram(message.document, context)
+        if pdf_bytes:
+            # Send PDF directly to Claude
+            import base64
+            pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+            try:
+                response = claude.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=1024,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "document",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "application/pdf",
+                                    "data": pdf_b64
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": f"{user_text if user_text else 'Please summarize this PDF.'}\n\nImportant: Do not use any markdown formatting. Plain text only."
+                            }
+                        ]
+                    }]
+                )
+                reply = response.content[0].text
+                await message.reply_text(reply)
+            except Exception as e:
+                await message.reply_text(f"Error reading PDF: {str(e)}")
+            return
+
+    # --- Handle URLs in message ---
+    urls = extract_urls(user_text)
+    if urls:
+        await message.reply_text("Fetching that link, one moment...")
+        url_content, _ = fetch_url_content(urls[0])
+        if url_content:
+            extra_content = f"\n\nContent from the link ({urls[0]}):\n{url_content}"
+        else:
+            extra_content = f"\n\n(Could not fetch content from {urls[0]})"
+
     prompt = f"""You are a helpful assistant in a group chat. You have a persistent memory of conversations and facts about users.
 
 Known facts about users in this chat:
@@ -108,7 +188,7 @@ Known facts about users in this chat:
 Recent conversation:
 {history_text}
 
-Now respond to this message from {sender}: {user_text}
+Now respond to this message from {sender}: {user_text}{extra_content if extra_content else ""}
 
 Important: Do not use any markdown formatting in your response. Plain text only, no bold, no bullet points, no headers.
 
@@ -139,9 +219,17 @@ FACTS: {username} | fact1, fact2, fact3"""
 def main():
     init_db()
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT, handle_message))
+    app.add_handler(MessageHandler(filters.ALL, handle_message))
     print("Bot is running...")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+```
+
+Then add `requests` to your `requirements.txt` so it looks like this:
+```
+python-telegram-bot
+anthropic
+python-dotenv
+requests
