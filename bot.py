@@ -1,4 +1,5 @@
 import os
+import base64
 import sqlite3
 import re
 import requests
@@ -80,24 +81,20 @@ def fetch_url_content(url):
         headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
-
         content_type = response.headers.get("Content-Type", "")
-
         if "pdf" in content_type:
-            return None, url  # handle as PDF download link
-
-        # Strip HTML tags roughly
+            return None, url
         text = re.sub(r'<[^>]+>', ' ', response.text)
         text = re.sub(r'\s+', ' ', text).strip()
-        return text[:5000], None  # limit to 5000 chars
-    except Exception as e:
+        return text[:5000], None
+    except Exception:
         return None, None
 
 async def fetch_pdf_from_telegram(file, context):
     try:
         tg_file = await context.bot.get_file(file.file_id)
         response = requests.get(tg_file.file_path, timeout=10)
-        return response.content  # raw PDF bytes
+        return response.content
     except Exception:
         return None
 
@@ -113,11 +110,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sender = message.from_user.first_name or "User"
     username = message.from_user.username or sender
 
-    # Always save the message
     if text:
         save_message(chat_id, sender, text)
 
-    # Only respond if mentioned or replied to
     is_mentioned = f"@{bot_username}" in text
     is_reply_to_bot = (
         message.reply_to_message and
@@ -139,8 +134,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text("Reading the PDF, one moment...")
         pdf_bytes = await fetch_pdf_from_telegram(message.document, context)
         if pdf_bytes:
-            # Send PDF directly to Claude
-            import base64
             pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
             try:
                 response = claude.messages.create(
@@ -168,7 +161,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await message.reply_text(reply)
             except Exception as e:
                 await message.reply_text(f"Error reading PDF: {str(e)}")
-            return
+        return
 
     # --- Handle URLs in message ---
     urls = extract_urls(user_text)
@@ -203,7 +196,6 @@ FACTS: {username} | fact1, fact2, fact3"""
         )
         reply = response.content[0].text
 
-        # Extract and save any new facts
         if "FACTS:" in reply:
             parts = reply.split("FACTS:")
             reply = parts[0].strip()
