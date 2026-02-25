@@ -318,7 +318,10 @@ Important: Do not use any markdown formatting. Plain text only."""
                 extra_content = f"\n\n(Could not fetch content from {url})"
 
     # --- Use Claude to detect Twitter search intent ---
+    # --- Use Claude to detect Twitter search intent ---
+    print(f"DEBUG: Checking for Twitter search in: {user_text}")
     search_query = detect_twitter_search(user_text, history_text)
+    print(f"DEBUG: Search query result: {search_query}")
     if search_query:
         await message.reply_text("Searching Twitter, one moment...")
         tweet_results = search_tweets(search_query)
