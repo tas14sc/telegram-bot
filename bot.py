@@ -94,35 +94,27 @@ def fetch_tweet(url):
         response = requests.get(
             "https://api.twitterapi.io/twitter/tweet/advanced_search",
             headers={"x-api-key": TWITTER_API_KEY},
-            params={"query": f"conversation_id:{post_id}", "queryType": "Latest"},
+            params={"query": f"conversation_id:{post_id} OR url:{post_id}", "queryType": "Latest"},
             timeout=10
         )
         response.raise_for_status()
         data = response.json()
         tweets = data.get("tweets", [])
-        if not tweets:
-            # Try direct tweet lookup
-            response2 = requests.get(
-                f"https://api.twitterapi.io/twitter/tweet",
-                headers={"x-api-key": TWITTER_API_KEY},
-                params={"tweet_id": post_id},
-                timeout=10
-            )
-            response2.raise_for_status()
-            data2 = response2.json()
-            tweet = data2.get("tweet")
-            if tweet:
-                author = tweet.get("author", {}).get("userName", "Unknown")
-                text = tweet.get("text", "")
-                return f"@{author}: {text}"
-            return None
 
-        result = ""
-        for t in tweets[:5]:
+        if tweets:
+            # Find the original tweet (the one matching post_id)
+            for t in tweets:
+                if t.get("id") == post_id or t.get("conversationId") == post_id:
+                    author = t.get("author", {}).get("userName", "Unknown")
+                    text = t.get("text", "")
+                    return f"@{author}: {text}"
+            # Fallback to first tweet if exact match not found
+            t = tweets[0]
             author = t.get("author", {}).get("userName", "Unknown")
             text = t.get("text", "")
-            result += f"@{author}: {text}\n\n"
-        return result.strip()
+            return f"@{author}: {text}"
+
+        return None
 
     except Exception as e:
         return None
