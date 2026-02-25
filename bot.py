@@ -92,9 +92,9 @@ def fetch_tweet(url):
 
     try:
         response = requests.get(
-            "https://api.twitterapi.io/twitter/tweet/advanced_search",
-            headers={"x-api-key": TWITTER_API_KEY},
-            params={"query": f"conversation_id:{post_id} OR url:{post_id}", "queryType": "Latest"},
+            "https://api.twitterapi.io/twitter/tweets",
+            headers={"X-API-Key": TWITTER_API_KEY},
+            params={"tweet_ids": post_id},
             timeout=10
         )
         response.raise_for_status()
@@ -102,13 +102,6 @@ def fetch_tweet(url):
         tweets = data.get("tweets", [])
 
         if tweets:
-            # Find the original tweet (the one matching post_id)
-            for t in tweets:
-                if t.get("id") == post_id or t.get("conversationId") == post_id:
-                    author = t.get("author", {}).get("userName", "Unknown")
-                    text = t.get("text", "")
-                    return f"@{author}: {text}"
-            # Fallback to first tweet if exact match not found
             t = tweets[0]
             author = t.get("author", {}).get("userName", "Unknown")
             text = t.get("text", "")
