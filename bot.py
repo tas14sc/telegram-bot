@@ -13,6 +13,7 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 GROK_API_KEY = os.getenv("GROK_API_KEY")
+TWITTER_API_KEY = os.getenv("TWITTER_API_KEY")
 
 claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -84,6 +85,48 @@ def extract_post_id(url):
     match = re.search(r'/status/(\d+)', url)
     return match.group(1) if match else None
 
+def fetch_tweet(url):
+    post_id = extract_post_id(url)
+    if not post_id:
+        return None
+
+    try:
+        response = requests.get(
+            "https://api.twitterapi.io/twitter/tweet/advanced_search",
+            headers={"x-api-key": TWITTER_API_KEY},
+            params={"query": f"conversation_id:{post_id}", "queryType": "Latest"},
+            timeout=10
+        )
+        response.raise_for_status()
+        data = response.json()
+        tweets = data.get("tweets", [])
+        if not tweets:
+            # Try direct tweet lookup
+            response2 = requests.get(
+                f"https://api.twitterapi.io/twitter/tweet",
+                headers={"x-api-key": TWITTER_API_KEY},
+                params={"tweet_id": post_id},
+                timeout=10
+            )
+            response2.raise_for_status()
+            data2 = response2.json()
+            tweet = data2.get("tweet")
+            if tweet:
+                author = tweet.get("author", {}).get("userName", "Unknown")
+                text = tweet.get("text", "")
+                return f"@{author}: {text}"
+            return None
+
+        result = ""
+        for t in tweets[:5]:
+            author = t.get("author", {}).get("userName", "Unknown")
+            text = t.get("text", "")
+            result += f"@{author}: {text}\n\n"
+        return result.strip()
+
+    except Exception as e:
+        return None
+
 def fetch_url_content(url):
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
@@ -97,39 +140,6 @@ def fetch_url_content(url):
         return text[:5000], None
     except Exception:
         return None, None
-
-def ask_grok(url, user_prompt):
-    post_id = extract_post_id(url)
-
-    if not post_id:
-        return "Could not extract tweet ID from that URL."
-
-    prompt = f"Tweet ID: {post_id}\n\nPlease fetch the exact tweet with this ID and show me the full text, author username, and any notable replies. Do not search for related content — only return the exact tweet with this ID."
-
-    if user_prompt:
-        prompt += f"\n\nAlso address this: {user_prompt}"
-
-    try:
-        response = requests.post(
-            "https://api.x.ai/v1/chat/completions",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {GROK_API_KEY}"
-            },
-            json={
-                "model": "grok-3-latest",
-                "messages": [
-                    {"role": "system", "content": "You are a helpful assistant with access to Twitter/X. You will be given a tweet ID. Use that ID to fetch and return the exact tweet — author, full text, and notable replies. Never search for related tweets or guess content. If you cannot find the exact tweet by ID, respond only with: I was unable to fetch tweet ID {post_id}. Do not use markdown formatting, plain text only."},
-                    {"role": "user", "content": prompt}
-                ],
-                "stream": False
-            },
-            timeout=15
-        )
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        return f"Error fetching tweet: {str(e)}"
 
 async def fetch_file_bytes(file, context):
     try:
@@ -244,14 +254,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if urls:
         url = urls[0]
         if is_twitter_url(url):
-            post_id = extract_post_id(url)
-            if post_id:
-                await message.reply_text("Fetching that tweet, one moment...")
+            await message.reply_text("Fetching that tweet, one moment...")
+            tweet_content = fetch_tweet(url)
+            if tweet_content:
                 user_prompt = user_text.replace(url, "").strip()
-                reply = ask_grok(url, user_prompt)
-                await message.reply_text(reply)
+                prompt = f"""Here is the content of a tweet that was shared in the chat:
+
+{tweet_content}
+
+{f'The user asks: {user_prompt}' if user_prompt else 'Please summarize this tweet and share your thoughts.'}
+
+Important: Do not use any markdown formatting. Plain text only."""
+                try:
+                    response = claude.messages.create(
+                        model="claude-sonnet-4-6",
+                        max_tokens=1024,
+                        messages=[{"role": "user", "content": prompt}]
+                    )
+                    await message.reply_text(response.content[0].text)
+                except Exception as e:
+                    await message.reply_text(f"Error: {str(e)}")
             else:
-                await message.reply_text("Could not extract tweet ID from that URL.")
+                await message.reply_text("I was unable to fetch that tweet. Please paste the text directly and I'll be happy to discuss it!")
             return
         else:
             await message.reply_text("Fetching that link, one moment...")
