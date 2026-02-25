@@ -131,34 +131,33 @@ def search_tweets(query, max_results=10):
     except Exception:
         return None
 
-def is_twitter_search_request(text):
-    search_phrases = [
-        "search twitter", "search x", "look up twitter", "find tweets",
-        "what is twitter saying", "what are people saying on twitter",
-        "what does twitter think", "twitter sentiment", "search for tweets",
-        "check twitter", "look on twitter", "find on twitter",
-        "what is x saying", "search on x", "able to search twitter",
-        "search for interesting takes", "interesting takes on twitter",
-        "what are people saying", "what is the sentiment", "twitter reaction",
-        "reactions on twitter", "twitter takes", "takes on twitter",
-        "twitter buzz", "trending on twitter", "what is trending"
-    ]
-    text_lower = text.lower()
-    return any(phrase in text_lower for phrase in search_phrases)
-
-def extract_search_query(text):
+def detect_twitter_search(text, history):
+    """Use Claude to detect if the user is asking for a Twitter search and extract the query."""
     try:
         response = claude.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=100,
             messages=[{
                 "role": "user",
-                "content": f"Extract only the search topic from this message as a short Twitter search query (3-6 words max, no extra text): {text}"
+                "content": f"""Analyze this message and recent conversation history. Is the user asking to search Twitter/X for reactions, takes, sentiment, or discussion about a topic?
+
+Recent conversation:
+{history}
+
+Current message: {text}
+
+If YES, respond with just the search query (3-6 words max).
+If NO, respond with just the word: NO
+
+Do not include any other text."""
             }]
         )
-        return response.content[0].text.strip().strip('"')
+        result = response.content[0].text.strip()
+        if result.upper() == "NO":
+            return None
+        return result
     except Exception:
-        return text
+        return None
 
 def fetch_url_content(url):
     try:
@@ -287,7 +286,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if urls:
         url = urls[0]
         if is_twitter_url(url):
-            # Always fetch specific tweet - never search when a URL is provided
             await message.reply_text("Fetching that tweet, one moment...")
             tweet_content = fetch_tweet(url)
             if tweet_content:
@@ -319,10 +317,10 @@ Important: Do not use any markdown formatting. Plain text only."""
             else:
                 extra_content = f"\n\n(Could not fetch content from {url})"
 
-    # --- Handle Twitter search (only when explicitly asked, no URL present) ---
-    if is_twitter_search_request(user_text):
+    # --- Use Claude to detect Twitter search intent ---
+    search_query = detect_twitter_search(user_text, history_text)
+    if search_query:
         await message.reply_text("Searching Twitter, one moment...")
-        search_query = extract_search_query(user_text)
         tweet_results = search_tweets(search_query)
         if tweet_results:
             prompt = f"""Here are recent tweets about "{search_query}":
@@ -345,7 +343,7 @@ Please summarize the key themes, sentiment, and most interesting takes from thes
             await message.reply_text("I wasn't able to find any tweets on that topic right now.")
         return
 
-    prompt = f"""You are a helpful assistant in a group chat. You have a persistent memory of conversations and facts about users. You also have the ability to search Twitter and fetch tweets in real time when asked - do not tell users you cannot do this.
+    prompt = f"""You are a helpful assistant in a group chat. You have a persistent memory of conversations and facts about users. You have the ability to search Twitter and fetch specific tweets in real time — do not tell users you cannot do this.
 
 Known facts about users in this chat:
 {user_facts if user_facts else "None yet."}
