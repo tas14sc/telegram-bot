@@ -345,7 +345,7 @@ Please summarize the key themes, sentiment, and most interesting takes from thes
             await message.reply_text("I wasn't able to find any tweets on that topic right now.")
         return
 
-    prompt = f"""You are a helpful assistant in a group chat. You have a persistent memory of conversations and facts about users.
+    prompt = f"""You are a helpful assistant in a group chat. You have a persistent memory of conversations and facts about users. You also have the ability to search Twitter and fetch tweets in real time when asked - do not tell users you cannot do this.
 
 Known facts about users in this chat:
 {user_facts if user_facts else "None yet."}
