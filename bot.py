@@ -80,6 +80,10 @@ def extract_urls(text):
 def is_twitter_url(url):
     return "twitter.com" in url or "x.com" in url
 
+def extract_post_id(url):
+    match = re.search(r'/status/(\d+)', url)
+    return match.group(1) if match else None
+
 def fetch_url_content(url):
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
@@ -94,7 +98,17 @@ def fetch_url_content(url):
     except Exception:
         return None, None
 
-def ask_grok(prompt):
+def ask_grok(url, user_prompt):
+    post_id = extract_post_id(url)
+
+    if post_id:
+        prompt = f"Use x_thread_fetch on post ID {post_id} and decode any embedded content or articles. Full URL for reference: {url}. Include thread context, media descriptions, and any linked articles if present."
+    else:
+        prompt = f"Direct post fetch: {url}"
+
+    if user_prompt:
+        prompt += f"\n\nAdditionally, please address this: {user_prompt}"
+
     try:
         response = requests.post(
             "https://api.x.ai/v1/chat/completions",
@@ -105,7 +119,7 @@ def ask_grok(prompt):
             json={
                 "model": "grok-3-latest",
                 "messages": [
-                    {"role": "system", "content": "You are a helpful assistant with access to Twitter/X and real-time search. When given a tweet URL, try to fetch it directly. If you cannot access it, search X for the topic, account, or keywords related to the URL and provide the most relevant recent discussion you find. Always be transparent about whether you fetched the actual tweet or found related content. Do not use markdown formatting, plain text only."},
+                    {"role": "system", "content": "You are a helpful assistant with direct access to Twitter/X. When given a post ID or URL, always fetch the exact post directly using x_thread_fetch. Never fall back to keyword search or return related posts. If you cannot fetch the exact post, say so clearly. Do not use markdown formatting, plain text only."},
                     {"role": "user", "content": prompt}
                 ],
                 "stream": False
@@ -113,7 +127,14 @@ def ask_grok(prompt):
             timeout=15
         )
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+        reply = response.json()["choices"][0]["message"]["content"]
+
+        # Check if Grok fell back to search instead of fetching
+        fallback_phrases = ["unable to directly fetch", "searched for related", "couldn't locate the specific", "cannot access"]
+        if any(phrase in reply.lower() for phrase in fallback_phrases):
+            return reply + "\n\n(Note: Grok could not fetch the exact tweet and may have returned related content instead.)"
+
+        return reply
     except Exception as e:
         return f"Error fetching tweet: {str(e)}"
 
@@ -232,8 +253,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_twitter_url(url):
             await message.reply_text("Fetching that tweet, one moment...")
             user_prompt = user_text.replace(url, "").strip()
-            grok_prompt = f"Here is a tweet URL: {url}\n\n{user_prompt if user_prompt else 'Please summarize this tweet and any notable replies.'}"
-            reply = ask_grok(grok_prompt)
+            reply = ask_grok(url, user_prompt)
             await message.reply_text(reply)
             return
         else:
