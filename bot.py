@@ -89,7 +89,6 @@ def fetch_tweet(url):
     post_id = extract_post_id(url)
     if not post_id:
         return None
-
     try:
         response = requests.get(
             "https://api.twitterapi.io/twitter/tweets",
@@ -100,17 +99,62 @@ def fetch_tweet(url):
         response.raise_for_status()
         data = response.json()
         tweets = data.get("tweets", [])
-
         if tweets:
             t = tweets[0]
             author = t.get("author", {}).get("userName", "Unknown")
             text = t.get("text", "")
             return f"@{author}: {text}"
-
+        return None
+    except Exception:
         return None
 
-    except Exception as e:
+def search_tweets(query, max_results=10):
+    try:
+        response = requests.get(
+            "https://api.twitterapi.io/twitter/tweet/advanced_search",
+            headers={"X-API-Key": TWITTER_API_KEY},
+            params={"query": query, "queryType": "Latest"},
+            timeout=10
+        )
+        response.raise_for_status()
+        data = response.json()
+        tweets = data.get("tweets", [])[:max_results]
+        if not tweets:
+            return None
+        result = ""
+        for t in tweets:
+            author = t.get("author", {}).get("userName", "Unknown")
+            text = t.get("text", "")
+            likes = t.get("likeCount", 0)
+            result += f"@{author} ({likes} likes): {text}\n\n"
+        return result.strip()
+    except Exception:
         return None
+
+def is_twitter_search_request(text):
+    search_phrases = [
+        "search twitter", "search x", "look up twitter", "find tweets",
+        "what is twitter saying", "what are people saying on twitter",
+        "what does twitter think", "twitter sentiment", "search for tweets",
+        "check twitter", "look on twitter", "find on twitter",
+        "what is x saying", "search on x"
+    ]
+    text_lower = text.lower()
+    return any(phrase in text_lower for phrase in search_phrases)
+
+def extract_search_query(text):
+    try:
+        response = claude.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=100,
+            messages=[{
+                "role": "user",
+                "content": f"Extract only the search topic from this message as a short Twitter search query (3-6 words max, no extra text): {text}"
+            }]
+        )
+        return response.content[0].text.strip().strip('"')
+    except Exception:
+        return text
 
 def fetch_url_content(url):
     try:
@@ -234,11 +278,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await message.reply_text(f"Error reading PDF: {str(e)}")
         return
 
-    # --- Handle URLs ---
+    # --- Handle URLs first (before search detection) ---
     urls = extract_urls(user_text)
     if urls:
         url = urls[0]
         if is_twitter_url(url):
+            # Always fetch specific tweet — never search when a URL is provided
             await message.reply_text("Fetching that tweet, one moment...")
             tweet_content = fetch_tweet(url)
             if tweet_content:
@@ -269,6 +314,32 @@ Important: Do not use any markdown formatting. Plain text only."""
                 extra_content = f"\n\nContent from the link ({url}):\n{url_content}"
             else:
                 extra_content = f"\n\n(Could not fetch content from {url})"
+
+    # --- Handle Twitter search (only when explicitly asked, no URL present) ---
+    if is_twitter_search_request(user_text):
+        await message.reply_text("Searching Twitter, one moment...")
+        search_query = extract_search_query(user_text)
+        tweet_results = search_tweets(search_query)
+        if tweet_results:
+            prompt = f"""Here are recent tweets about "{search_query}":
+
+{tweet_results}
+
+The user asked: {user_text}
+
+Please summarize the key themes, sentiment, and most interesting takes from these tweets. Do not use any markdown formatting. Plain text only."""
+            try:
+                response = claude.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=1024,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                await message.reply_text(response.content[0].text)
+            except Exception as e:
+                await message.reply_text(f"Error: {str(e)}")
+        else:
+            await message.reply_text("I wasn't able to find any tweets on that topic right now.")
+        return
 
     prompt = f"""You are a helpful assistant in a group chat. You have a persistent memory of conversations and facts about users.
 
