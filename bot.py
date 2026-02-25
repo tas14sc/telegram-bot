@@ -101,13 +101,13 @@ def fetch_url_content(url):
 def ask_grok(url, user_prompt):
     post_id = extract_post_id(url)
 
-    if post_id:
-        prompt = f"Fetch the exact tweet with post ID {post_id}. Full URL: {url}. Show the tweet text, author, and any important replies. If you cannot fetch the exact tweet, say 'I was unable to fetch this tweet' and nothing else."
-    else:
-        prompt = f"Fetch this tweet: {url}. If you cannot fetch it, say 'I was unable to fetch this tweet' and nothing else."
+    if not post_id:
+        return "Could not extract tweet ID from that URL."
+
+    prompt = f"Tweet ID: {post_id}\n\nPlease fetch the exact tweet with this ID and show me the full text, author username, and any notable replies. Do not search for related content — only return the exact tweet with this ID."
 
     if user_prompt:
-        prompt += f"\n\nIf you can fetch it, also address this: {user_prompt}"
+        prompt += f"\n\nAlso address this: {user_prompt}"
 
     try:
         response = requests.post(
@@ -119,7 +119,7 @@ def ask_grok(url, user_prompt):
             json={
                 "model": "grok-3-latest",
                 "messages": [
-                    {"role": "system", "content": "You are a helpful assistant with access to Twitter/X. When asked to fetch a specific tweet, only return the exact tweet content. Do not search for related tweets or make up content. If you cannot fetch the exact tweet, respond only with 'I was unable to fetch this tweet.' Do not use markdown formatting, plain text only."},
+                    {"role": "system", "content": "You are a helpful assistant with access to Twitter/X. You will be given a tweet ID. Use that ID to fetch and return the exact tweet — author, full text, and notable replies. Never search for related tweets or guess content. If you cannot find the exact tweet by ID, respond only with: I was unable to fetch tweet ID {post_id}. Do not use markdown formatting, plain text only."},
                     {"role": "user", "content": prompt}
                 ],
                 "stream": False
@@ -244,10 +244,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if urls:
         url = urls[0]
         if is_twitter_url(url):
-            await message.reply_text("Fetching that tweet, one moment...")
-            user_prompt = user_text.replace(url, "").strip()
-            reply = ask_grok(url, user_prompt)
-            await message.reply_text(reply)
+            post_id = extract_post_id(url)
+            if post_id:
+                await message.reply_text("Fetching that tweet, one moment...")
+                user_prompt = user_text.replace(url, "").strip()
+                reply = ask_grok(url, user_prompt)
+                await message.reply_text(reply)
+            else:
+                await message.reply_text("Could not extract tweet ID from that URL.")
             return
         else:
             await message.reply_text("Fetching that link, one moment...")
