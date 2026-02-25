@@ -137,7 +137,11 @@ def is_twitter_search_request(text):
         "what is twitter saying", "what are people saying on twitter",
         "what does twitter think", "twitter sentiment", "search for tweets",
         "check twitter", "look on twitter", "find on twitter",
-        "what is x saying", "search on x"
+        "what is x saying", "search on x", "able to search twitter",
+        "search for interesting takes", "interesting takes on twitter",
+        "what are people saying", "what is the sentiment", "twitter reaction",
+        "reactions on twitter", "twitter takes", "takes on twitter",
+        "twitter buzz", "trending on twitter", "what is trending"
     ]
     text_lower = text.lower()
     return any(phrase in text_lower for phrase in search_phrases)
@@ -283,7 +287,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if urls:
         url = urls[0]
         if is_twitter_url(url):
-            # Always fetch specific tweet — never search when a URL is provided
+            # Always fetch specific tweet - never search when a URL is provided
             await message.reply_text("Fetching that tweet, one moment...")
             tweet_content = fetch_tweet(url)
             if tweet_content:
