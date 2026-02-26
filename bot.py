@@ -17,7 +17,7 @@ TWITTER_API_KEY = os.getenv("TWITTER_API_KEY")
 
 claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-MAX_HISTORY = 50
+MAX_HISTORY = 250
 
 # --- Database setup ---
 def init_db():
@@ -132,7 +132,6 @@ def search_tweets(query, max_results=10):
         return None
 
 def detect_twitter_search(text, history):
-    """Use Claude to detect if the user is asking for a Twitter search and extract the query."""
     try:
         response = claude.messages.create(
             model="claude-sonnet-4-6",
@@ -318,7 +317,6 @@ Important: Do not use any markdown formatting. Plain text only."""
                 extra_content = f"\n\n(Could not fetch content from {url})"
 
     # --- Use Claude to detect Twitter search intent ---
-    # --- Use Claude to detect Twitter search intent ---
     print(f"DEBUG: Checking for Twitter search in: {user_text}")
     search_query = detect_twitter_search(user_text, history_text)
     print(f"DEBUG: Search query result: {search_query}")
@@ -386,7 +384,7 @@ def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.ALL, handle_message))
     print("Bot is running...")
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
