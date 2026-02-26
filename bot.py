@@ -12,7 +12,6 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-GROK_API_KEY = os.getenv("GROK_API_KEY")
 TWITTER_API_KEY = os.getenv("TWITTER_API_KEY")
 
 claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -74,7 +73,7 @@ def save_user_facts(chat_id, username, facts):
     conn.commit()
     conn.close()
 
-# --- URL and PDF fetching ---
+# --- URL and content fetching ---
 def extract_urls(text):
     return re.findall(r'https?://[^\s]+', text)
 
@@ -105,56 +104,6 @@ def fetch_tweet(url):
             text = t.get("text", "")
             return f"@{author}: {text}"
         return None
-    except Exception:
-        return None
-
-def search_tweets(query, max_results=10):
-    try:
-        response = requests.get(
-            "https://api.twitterapi.io/twitter/tweet/advanced_search",
-            headers={"X-API-Key": TWITTER_API_KEY},
-            params={"query": query, "queryType": "Latest"},
-            timeout=10
-        )
-        response.raise_for_status()
-        data = response.json()
-        tweets = data.get("tweets", [])[:max_results]
-        if not tweets:
-            return None
-        result = ""
-        for t in tweets:
-            author = t.get("author", {}).get("userName", "Unknown")
-            text = t.get("text", "")
-            likes = t.get("likeCount", 0)
-            result += f"@{author} ({likes} likes): {text}\n\n"
-        return result.strip()
-    except Exception:
-        return None
-
-def detect_twitter_search(text, history):
-    try:
-        response = claude.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=100,
-            messages=[{
-                "role": "user",
-                "content": f"""Analyze this message and recent conversation history. Is the user asking to search Twitter/X for reactions, takes, sentiment, or discussion about a topic?
-
-Recent conversation:
-{history}
-
-Current message: {text}
-
-If YES, respond with just the search query (3-6 words max).
-If NO, respond with just the word: NO
-
-Do not include any other text."""
-            }]
-        )
-        result = response.content[0].text.strip()
-        if result.upper() == "NO":
-            return None
-        return result
     except Exception:
         return None
 
@@ -280,7 +229,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await message.reply_text(f"Error reading PDF: {str(e)}")
         return
 
-    # --- Handle URLs first (before search detection) ---
+    # --- Handle URLs ---
     urls = extract_urls(user_text)
     if urls:
         url = urls[0]
@@ -316,35 +265,7 @@ Important: Do not use any markdown formatting. Plain text only."""
             else:
                 extra_content = f"\n\n(Could not fetch content from {url})"
 
-    # --- Use Claude to detect Twitter search intent ---
-    print(f"DEBUG: Checking for Twitter search in: {user_text}")
-    search_query = detect_twitter_search(user_text, history_text)
-    print(f"DEBUG: Search query result: {search_query}")
-    if search_query:
-        await message.reply_text("Searching Twitter, one moment...")
-        tweet_results = search_tweets(search_query)
-        if tweet_results:
-            prompt = f"""Here are recent tweets about "{search_query}":
-
-{tweet_results}
-
-The user asked: {user_text}
-
-Please summarize the key themes, sentiment, and most interesting takes from these tweets. Do not use any markdown formatting. Plain text only."""
-            try:
-                response = claude.messages.create(
-                    model="claude-sonnet-4-6",
-                    max_tokens=1024,
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                await message.reply_text(response.content[0].text)
-            except Exception as e:
-                await message.reply_text(f"Error: {str(e)}")
-        else:
-            await message.reply_text("I wasn't able to find any tweets on that topic right now.")
-        return
-
-    prompt = f"""You are a helpful assistant in a group chat. You have a persistent memory of conversations and facts about users. You have the ability to search Twitter and fetch specific tweets in real time — do not tell users you cannot do this.
+    prompt = f"""You are a helpful assistant in a group chat. You have a persistent memory of conversations and facts about users.
 
 Known facts about users in this chat:
 {user_facts if user_facts else "None yet."}
