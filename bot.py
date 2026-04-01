@@ -98,15 +98,17 @@ def fetch_tweet(url):
             timeout=10
         )
         print(f"DEBUG: twitterapi.io status code: {response.status_code}")
-        print(f"DEBUG: twitterapi.io response: {response.text[:500]}")
-        response.raise_for_status()
         data = response.json()
+        print(f"DEBUG: parsed data keys: {list(data.keys())}")
         tweets = data.get("tweets", [])
+        print(f"DEBUG: number of tweets: {len(tweets)}")
         if tweets:
             t = tweets[0]
             author = t.get("author", {}).get("userName", "Unknown")
             text = t.get("text", "")
+            print(f"DEBUG: author={author}, text length={len(text)}")
             return f"@{author}: {text}"
+        print(f"DEBUG: no tweets found in response")
         return None
     except Exception as e:
         print(f"DEBUG: Exception in fetch_tweet: {str(e)}")
@@ -314,4 +316,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
