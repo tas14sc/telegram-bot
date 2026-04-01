@@ -87,14 +87,18 @@ def extract_post_id(url):
 def fetch_tweet(url):
     post_id = extract_post_id(url)
     if not post_id:
+        print(f"DEBUG: Could not extract post ID from URL: {url}")
         return None
     try:
+        print(f"DEBUG: Fetching tweet ID: {post_id}")
         response = requests.get(
             "https://api.twitterapi.io/twitter/tweets",
             headers={"X-API-Key": TWITTER_API_KEY},
             params={"tweet_ids": post_id},
             timeout=10
         )
+        print(f"DEBUG: twitterapi.io status code: {response.status_code}")
+        print(f"DEBUG: twitterapi.io response: {response.text[:500]}")
         response.raise_for_status()
         data = response.json()
         tweets = data.get("tweets", [])
@@ -104,7 +108,8 @@ def fetch_tweet(url):
             text = t.get("text", "")
             return f"@{author}: {text}"
         return None
-    except Exception:
+    except Exception as e:
+        print(f"DEBUG: Exception in fetch_tweet: {str(e)}")
         return None
 
 def fetch_url_content(url):
@@ -309,3 +314,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
