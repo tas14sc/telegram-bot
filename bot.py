@@ -73,6 +73,16 @@ def save_user_facts(chat_id, username, facts):
     conn.commit()
     conn.close()
 
+# --- Helpers ---
+async def send_long_message(message, text):
+    """Split and send messages that exceed Telegram's 4096 char limit."""
+    if len(text) <= 4096:
+        await message.reply_text(text)
+    else:
+        chunks = [text[i:i+4096] for i in range(0, len(text), 4096)]
+        for chunk in chunks:
+            await message.reply_text(chunk)
+
 # --- URL and content fetching ---
 def extract_urls(text):
     return re.findall(r'https?://[^\s]+', text)
@@ -176,7 +186,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 response = claude.messages.create(
                     model="claude-sonnet-4-6",
-                    max_tokens=1024,
+                    max_tokens=2048,
                     messages=[{
                         "role": "user",
                         "content": [
@@ -196,7 +206,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     }]
                 )
                 reply = response.content[0].text
-                await message.reply_text(reply)
+                await send_long_message(message, reply)
             except Exception as e:
                 await message.reply_text(f"Error reading image: {str(e)}")
         return
@@ -211,7 +221,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 response = claude.messages.create(
                     model="claude-sonnet-4-6",
-                    max_tokens=1024,
+                    max_tokens=4096,
                     messages=[{
                         "role": "user",
                         "content": [
@@ -231,7 +241,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     }]
                 )
                 reply = response.content[0].text
-                await message.reply_text(reply)
+                await send_long_message(message, reply)
             except Exception as e:
                 await message.reply_text(f"Error reading PDF: {str(e)}")
         return
@@ -258,7 +268,7 @@ Important: Do not use any markdown formatting. Plain text only."""
                         max_tokens=1024,
                         messages=[{"role": "user", "content": prompt}]
                     )
-                    await message.reply_text(response.content[0].text)
+                    await send_long_message(message, response.content[0].text)
                 except Exception as e:
                     await message.reply_text(f"Error: {str(e)}")
             else:
@@ -290,7 +300,7 @@ FACTS: {username} | fact1, fact2, fact3"""
     try:
         response = claude.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=1024,
+            max_tokens=2048,
             messages=[{"role": "user", "content": prompt}]
         )
         reply = response.content[0].text
@@ -303,7 +313,7 @@ FACTS: {username} | fact1, fact2, fact3"""
                 fact_username, facts = fact_part.split("|", 1)
                 save_user_facts(chat_id, fact_username.strip(), facts.strip())
 
-        await message.reply_text(reply)
+        await send_long_message(message, reply)
     except Exception as e:
         await message.reply_text(f"Error: {str(e)}")
 
